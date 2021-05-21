@@ -5,11 +5,9 @@
 //
 // May 20, 2021  William Findlay  Created this.
 
-mod bench;
-mod bpf;
-mod bpf_types;
-mod config;
-mod util;
+use plain::Plain;
 
-pub use bench::BpfBenchContext;
-pub use config::Config;
+pub use crate::bpf::bpfbench_bss_types::*;
+
+unsafe impl Plain for event_key {}
+unsafe impl Plain for overhead {}

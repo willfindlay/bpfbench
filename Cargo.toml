@@ -10,10 +10,13 @@ edition = "2018"
 clap = "2.33.3"
 anyhow = "1.0.40"
 #libbpf-rs = "0.9.3"
-libbpf-rs = { git = "https://github.com/libbpf/libbpf-rs" }
+libbpf-rs = { git = "https://github.com/willfindlay/libbpf-rs", branch = "bpfcontain-tree" }
+libc = "0.2.94"
+scopeguard = "1.1.0"
+plain = "0.2.3"
 
 [build-dependencies]
 #libbpf-cargo = "0.6.3"
-libbpf-cargo = { git = "https://github.com/libbpf/libbpf-rs" }
+libbpf-cargo = { git = "https://github.com/willfindlay/libbpf-rs", branch = "bpfcontain-tree" }
 glob = "0.3.0"
 uname = "0.1.1"

@@ -5,11 +5,9 @@
 //
 // May 20, 2021  William Findlay  Created this.
 
-mod bench;
-mod bpf;
-mod bpf_types;
-mod config;
-mod util;
-
-pub use bench::BpfBenchContext;
-pub use config::Config;
+#[derive(Default)]
+pub struct Config {
+    pub trace_pid: Option<u32>,
+    pub trace_tgid: Option<u32>,
+    pub coarse_ns: Option<bool>,
+}
