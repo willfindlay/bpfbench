@@ -9,5 +9,6 @@
 pub struct Config {
     pub trace_pid: Option<u32>,
     pub trace_tgid: Option<u32>,
-    pub coarse_ns: Option<bool>,
+    pub coarse_ns: bool,
+    pub debug: bool,
 }

@@ -5,6 +5,8 @@
 //
 // May 20, 2021  William Findlay  Created this.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -25,16 +27,17 @@ fn main() -> Result<()> {
         .arg(
             Arg::with_name("duration")
                 .long("duration")
+                .short("d")
                 .takes_value(true)
-                .help("Duration to run tests (in seconds)"),
+                .help("Duration to run (in seconds). Defaults to infinite."),
         )
         .arg(
-            Arg::with_name("checkpoint")
-                .long("checkpoint")
-                .short("c")
+            Arg::with_name("interval")
+                .long("interval")
+                .short("i")
                 .default_value("300")
                 .takes_value(true)
-                .help("How often should resulted be checkpointed (in seconds)"),
+                .help("How often should resulted be printed (in seconds). Defaults to 300."),
         )
         .arg(
             Arg::with_name("pid")
@@ -56,6 +59,11 @@ fn main() -> Result<()> {
             Arg::with_name("coarse")
                 .long("coarse")
                 .help("Use coarse-grained time measurements. This is more performant but may impact result accuracy. Requires Linux >=5.11"),
+        )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .hidden(true),
         );
     //.arg(
     //    Arg::with_name("driver")
@@ -69,6 +77,7 @@ fn main() -> Result<()> {
 
     let matches = app.get_matches();
 
+    // Set the run duration
     let duration = matches
         .value_of("duration")
         .map(|duration| {
@@ -78,46 +87,67 @@ fn main() -> Result<()> {
         })
         .map(|duration| Duration::from_secs(duration));
 
-    let checkpoint = matches
-        .value_of("checkpoint")
-        .map(|checkpoint| {
-            checkpoint
+    // Set the print interval
+    let interval = matches
+        .value_of("interval")
+        .map(|interval| {
+            interval
                 .parse::<u64>()
-                .expect("Failed to parse checkpoint time")
+                .expect("Failed to parse interval time")
         })
-        .map(|checkpoint| Duration::from_secs(checkpoint))
+        .map(|interval| Duration::from_secs(interval))
         .unwrap();
 
+    // Create and set configuration
     let mut config = Config::default();
-
     update_config(&matches, &mut config)?;
 
+    // Flag to determine whether the process should exit
+    let should_exit = Arc::new(AtomicBool::new(false));
+    let should_exit_clone = should_exit.clone();
+
+    // Register a signal handler on SIGINT, SIGTERM, and SA_SIGINFO to set should_exit to
+    // true
+    ctrlc::set_handler(move || should_exit_clone.store(true, Ordering::SeqCst))
+        .expect("Failed to register signal handler");
+
+    // Get start time and initial interval_time
     let start_time = Instant::now();
-    let mut cp_time = Instant::now();
+    let mut interval_time = Instant::now();
     let ctx = BpfBenchContext::new(&config).context("Failed to create BpfBenchContext")?;
 
     defer! {
         ctx.dump_results();
     }
 
+    // @TODO spawn driver program here when we support this
+
     loop {
         sleep(Duration::from_secs(1));
 
+        // Exit when we have reached the target duration
         if let Some(duration) = duration {
             if start_time.elapsed() >= duration {
                 break;
             }
         }
 
-        if cp_time.elapsed() >= checkpoint {
+        // Dump results and reset interval on every interval
+        if interval_time.elapsed() >= interval {
             ctx.dump_results();
-            cp_time = Instant::now();
+            interval_time = Instant::now();
+        }
+
+        // Exit when should_exit has been set to true
+        if should_exit.load(Ordering::SeqCst) {
+            break;
         }
     }
 
     Ok(())
 }
 
+/// Update configuration struct according to parsed arguments
 fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
     if let Some(pid) = matches.value_of("pid") {
         config.trace_tgid = Some(pid.parse().context("Failed to parse PID")?);
@@ -128,7 +158,11 @@ fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
     }
 
     if matches.is_present("coarse") {
-        config.coarse_ns = Some(true);
+        config.coarse_ns = true;
+    }
+
+    if matches.is_present("debug") {
+        config.debug = true;
     }
 
     Ok(())

@@ -20,7 +20,7 @@ struct syscall_key __syscall_key = {};
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __uint(max_entries, 10240);
-    __type(key, struct syscall_key);
+    __type(key, u32);
     __type(value, u64);
 } syscall_start_times SEC(".maps");
 
@@ -40,13 +40,9 @@ int BPF_PROG(do_sys_enter, struct pt_regs *regs, long id)
     if (!bpfbench__should_trace(pid, tgid))
         return 0;
 
-    struct syscall_key key = {};
-    key.pid = pid;
-    key.num = id;
-
     u64 start_time = bpfbench__get_time_ns();
 
-    bpf_map_update_elem(&syscall_start_times, &key, &start_time, BPF_ANY);
+    bpf_map_update_elem(&syscall_start_times, &pid, &start_time, BPF_ANY);
 
     return 0;
 }
@@ -55,7 +51,8 @@ SEC("tp_btf/sys_exit")
 int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
 {
     u64 end_time = bpfbench__get_time_ns();
-    long id = regs->r8;
+    // @FIXME: This is x86-only for now
+    long id = regs->orig_ax;
     u32 pid = bpf_get_current_pid_tgid();
     u32 tgid = bpf_get_current_pid_tgid() >> 32;
 
@@ -63,14 +60,16 @@ int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
         return 0;
 
     // Ignore restart_syscall
-    if (id == bpfbench__restart_syscall_nr())
+    if (id == bpfbench__restart_syscall_nr()) {
+        bpf_map_delete_elem(&syscall_start_times, &pid);
         return 0;
+    }
 
     struct syscall_key key = {};
     key.pid = pid;
     key.num = id;
 
-    u64 *start_time_p = bpf_map_lookup_elem(&syscall_start_times, &key);
+    u64 *start_time_p = bpf_map_lookup_elem(&syscall_start_times, &pid);
     if (!start_time_p || end_time < *start_time_p)
         return 0;
 

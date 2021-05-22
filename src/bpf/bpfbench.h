@@ -19,7 +19,9 @@ volatile u32 trace_pid = 0;
 volatile u32 trace_tgid = 0;
 volatile u32 bpfbench_pid = 0;
 
-extern bool CONFIG_64BIT __kconfig;
+extern bool CONFIG_X86_64 __kconfig;
+extern bool CONFIG_X86 __kconfig;
+extern bool CONFIG_PPC __kconfig;
 
 struct syscall_key {
     u32 pid;
@@ -64,8 +66,8 @@ bpf_map_lookup_or_try_init(void *map, const void *key, const void *val)
 
 static __always_inline long bpfbench__restart_syscall_nr()
 {
-    if (CONFIG_64BIT)
-        return 128;
+    if (CONFIG_X86_64)
+        return 219;
     return 0;
 }
 

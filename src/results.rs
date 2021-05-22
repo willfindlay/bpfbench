@@ -22,15 +22,15 @@ fn get_raw_result(map: &Map, key: &[u8]) -> (SystemCall, Overhead) {
     (SystemCall(key.num), val.clone())
 }
 
-pub enum ResultsOrdering {
+pub enum ResultsOrder {
     CountDecreasing,
     AverageTimeDecreasing,
     TotalTimeDecreasing,
     CallNumberIncreasing,
 }
 
-impl ResultsOrdering {
-    pub fn ordering(
+impl ResultsOrder {
+    pub fn order(
         &'static self,
     ) -> impl FnMut(&(&SystemCall, &BenchResult), &(&SystemCall, &BenchResult)) -> Ordering {
         move |a, b| match self {
@@ -87,9 +87,9 @@ impl Results {
         Self { inner: hash }
     }
 
-    pub fn summarize(&self, ordering: &'static ResultsOrdering) {
+    pub fn summarize(&self, order: &'static ResultsOrder) {
         let mut data = self.inner.iter().collect::<Vec<_>>();
-        data.sort_by(ordering.ordering());
+        data.sort_by(order.order());
 
         println!(
             "{:>12} {:>8} {:>20} {:>20}",
