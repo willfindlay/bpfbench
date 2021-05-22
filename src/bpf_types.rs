@@ -7,7 +7,10 @@
 
 use plain::Plain;
 
-pub use crate::bpf::bpfbench_bss_types::*;
+use crate::bpf::bpfbench_bss_types::*;
 
-unsafe impl Plain for event_key {}
+pub type Overhead = overhead;
 unsafe impl Plain for overhead {}
+
+pub type SyscallKey = syscall_key;
+unsafe impl Plain for syscall_key {}

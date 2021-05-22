@@ -6,12 +6,10 @@
 // May 20, 2021  William Findlay  Created this.
 
 use anyhow::{Context as _, Result};
-use libbpf_rs::MapFlags;
-use plain::from_bytes;
 
 use crate::bpf::{BpfbenchSkel, BpfbenchSkelBuilder, OpenBpfbenchSkel};
-use crate::bpf_types;
 use crate::config::Config;
+use crate::results::{Results, ResultsOrdering};
 use crate::util::bump_memlock_rlimit;
 
 pub struct BpfBenchContext<'a> {
@@ -25,17 +23,9 @@ impl<'a> BpfBenchContext<'a> {
         Ok(Self { skel })
     }
 
-    pub fn dump_results(&self) -> Result<()> {
-        let map = self.skel.obj.map("overheads").unwrap();
-
-        for key in map.keys() {
-            let val = map.lookup(&key, MapFlags::ANY).unwrap().unwrap();
-            let val: &bpf_types::overhead = from_bytes(&val).unwrap();
-            let key: &bpf_types::event_key = from_bytes(&key).unwrap();
-            println!("{:#?} {:#?}", key, val);
-        }
-
-        Ok(())
+    pub fn dump_results(&self) {
+        let results = Results::new(&self.skel);
+        results.summarize(&ResultsOrdering::AverageTimeDecreasing);
     }
 }
 

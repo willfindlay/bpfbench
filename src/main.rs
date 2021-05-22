@@ -97,7 +97,7 @@ fn main() -> Result<()> {
     let ctx = BpfBenchContext::new(&config).context("Failed to create BpfBenchContext")?;
 
     defer! {
-        ctx.dump_results().expect("Error dumping results!");
+        ctx.dump_results();
     }
 
     loop {

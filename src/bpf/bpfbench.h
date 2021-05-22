@@ -21,15 +21,9 @@ volatile u32 bpfbench_pid = 0;
 
 extern bool CONFIG_64BIT __kconfig;
 
-enum event_type {
-    ET__UNKNOWN = 0,
-    ET_SYSCALL,
-};
-
-struct event_key {
-    u32 type_;
+struct syscall_key {
     u32 pid;
-    long event_number;
+    long num;
 };
 
 struct overhead {
