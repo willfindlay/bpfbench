@@ -40,7 +40,7 @@ int BPF_PROG(do_sys_enter, struct pt_regs *regs, long id)
     if (!bpfbench__should_trace(pid, tgid))
         return 0;
 
-    u64 start_time = bpfbench__get_time_ns();
+    u64 start_time = bpf_ktime_get_ns();
 
     bpf_map_update_elem(&syscall_start_times, &pid, &start_time, BPF_ANY);
 
@@ -50,7 +50,7 @@ int BPF_PROG(do_sys_enter, struct pt_regs *regs, long id)
 SEC("tp_btf/sys_exit")
 int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
 {
-    u64 end_time = bpfbench__get_time_ns();
+    u64 end_time = bpf_ktime_get_ns();
     // @FIXME: This is x86-only for now
     long id = regs->orig_ax;
     u32 pid = bpf_get_current_pid_tgid();
@@ -64,6 +64,10 @@ int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
         bpf_map_delete_elem(&syscall_start_times, &pid);
         return 0;
     }
+
+    // Ignore errors
+    if (id < 0)
+        return 0;
 
     struct syscall_key key = {};
     key.pid = pid;

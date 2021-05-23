@@ -33,14 +33,6 @@ struct overhead {
     u64 total_ns;
 };
 
-static __always_inline u64 bpfbench__get_time_ns()
-{
-    if (use_coarse_ns)
-        return bpf_ktime_get_coarse_ns();
-    else
-        return bpf_ktime_get_ns();
-}
-
 static __always_inline bool bpfbench__should_trace(u32 pid, u32 tgid)
 {
     if (!pid || !tgid)
