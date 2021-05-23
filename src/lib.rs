@@ -10,6 +10,8 @@ mod bpf;
 mod bpf_types;
 mod config;
 mod results;
+mod syscall;
+mod syscall_names;
 mod util;
 
 pub use bench::BpfBenchContext;

@@ -14,7 +14,6 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
-volatile bool use_coarse_ns = 0;
 volatile u32 trace_pid = 0;
 volatile u32 trace_tgid = 0;
 volatile u32 bpfbench_pid = 0;
@@ -33,12 +32,15 @@ struct overhead {
     u64 total_ns;
 };
 
-static __always_inline bool bpfbench__should_trace(u32 pid, u32 tgid)
+static __always_inline bool bpfbench__should_trace(void *children_map, u32 pid,
+                                                   u32 tgid)
 {
     if (!pid || !tgid)
         return false;
     if (bpfbench_pid == pid)
         return false;
+    if (bpf_map_lookup_elem(children_map, &pid))
+        return true;
     if (trace_pid && trace_pid != pid)
         return false;
     if (trace_tgid && trace_tgid != tgid)

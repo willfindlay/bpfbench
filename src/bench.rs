@@ -44,9 +44,9 @@ fn load_bpf<'a>(config: &Config) -> Result<BpfbenchSkel<'a>> {
 }
 
 fn set_globals(open_skel: &mut OpenBpfbenchSkel, config: &Config) {
-    open_skel.bss().use_coarse_ns = config.coarse_ns as u8;
     open_skel.bss().trace_pid = config.trace_pid.unwrap_or(0);
     open_skel.bss().trace_tgid = config.trace_tgid.unwrap_or(0);
+    open_skel.bss().trace_children = config.trace_children as u8;
 
     // Set own pid
     open_skel.bss().bpfbench_pid = std::process::id();

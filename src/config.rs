@@ -5,10 +5,14 @@
 //
 // May 20, 2021  William Findlay  Created this.
 
+use std::time::Duration;
+
 #[derive(Default)]
 pub struct Config {
     pub trace_pid: Option<u32>,
     pub trace_tgid: Option<u32>,
-    pub coarse_ns: bool,
     pub debug: bool,
+    pub trace_children: bool,
+    pub duration: Option<Duration>,
+    pub interval: Option<Duration>,
 }

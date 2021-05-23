@@ -9,13 +9,17 @@ use std::env;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use clap::{App, AppSettings, Arg, ArgMatches, Values};
-use nix::sys::signal::{kill, SIGPOLL, SIGUSR1};
+use nix::errno::Errno;
+use nix::sys::signal::{kill, SIGUSR1};
+use nix::sys::wait::{waitpid, WaitPidFlag};
 use nix::unistd::{execvp, fork, setgid, setuid, ForkResult, Gid, Pid, Uid};
+use nix::Error;
 use scopeguard::defer;
 use signal_hook::iterator::Signals;
 
@@ -33,15 +37,14 @@ fn main() -> Result<()> {
                 .long("duration")
                 .short("d")
                 .takes_value(true)
-                .help("Duration to run (in seconds). Defaults to infinite."),
+                .help("Duration to run (in seconds). If this is not specified, tracing runs infinitely"),
         )
         .arg(
             Arg::with_name("interval")
                 .long("interval")
                 .short("i")
-                .default_value("300")
                 .takes_value(true)
-                .help("How often should resulted be printed (in seconds). Defaults to 300."),
+                .help("How often should resulted be printed (in seconds)"),
         )
         .arg(
             Arg::with_name("pid")
@@ -60,6 +63,12 @@ fn main() -> Result<()> {
                 .help("Only trace thread with this tid"),
         )
         .arg(
+            Arg::with_name("trace children")
+                .long("children")
+                .short("c")
+                .help("Trace children of tracees. Only makes sense when combined with --driver, --pid, or --tid"),
+        )
+        .arg(
             Arg::with_name("debug")
                 .long("debug")
                 .hidden(true),
@@ -76,27 +85,6 @@ fn main() -> Result<()> {
 
     let matches = app.get_matches();
 
-    // Set the run duration
-    let duration = matches
-        .value_of("duration")
-        .map(|duration| {
-            duration
-                .parse::<u64>()
-                .expect("Failed to parse duration time")
-        })
-        .map(|duration| Duration::from_secs(duration));
-
-    // Set the print interval
-    let interval = matches
-        .value_of("interval")
-        .map(|interval| {
-            interval
-                .parse::<u64>()
-                .expect("Failed to parse interval time")
-        })
-        .map(|interval| Duration::from_secs(interval))
-        .unwrap();
-
     // Create and set configuration
     let mut config = Config::default();
     update_config(&matches, &mut config)?;
@@ -111,10 +99,10 @@ fn main() -> Result<()> {
         .expect("Failed to register signal handler");
 
     // Spawn driver program if one is supplied
-    let mut child_pid: Option<Pid> = None;
+    let mut child: Option<Pid> = None;
     if let Some(mut driver) = matches.values_of("driver") {
-        child_pid = spawn_driver(&mut driver);
-        config.trace_pid = Some(child_pid.expect("No child pid").as_raw() as u32);
+        child = spawn_driver(&mut driver);
+        config.trace_tgid = Some(child.expect("No child pid").as_raw() as u32);
     }
 
     // Get start time and initial interval_time
@@ -123,33 +111,39 @@ fn main() -> Result<()> {
     let ctx = BpfBenchContext::new(&config).expect("Failed to create BpfBenchContext");
 
     // Wake the child
-    if let Some(child_pid) = child_pid {
-        kill(child_pid, SIGUSR1).unwrap();
+    if let Some(child) = child {
+        kill(child, SIGUSR1).unwrap();
     }
 
     defer! {
         ctx.dump_results();
     }
 
+    print_initial_info(&config);
+
     loop {
         sleep(Duration::from_secs(1));
 
         // Exit when we have reached the target duration
-        if let Some(duration) = duration {
+        if let Some(duration) = config.duration {
             if start_time.elapsed() >= duration {
                 break;
             }
         }
 
         // Dump results and reset interval on every interval
-        if interval_time.elapsed() >= interval {
+        if config.interval.is_some() && interval_time.elapsed() >= config.interval.unwrap() {
             ctx.dump_results();
             interval_time = Instant::now();
         }
 
-        if let Some(child_pid) = child_pid {
-            if kill(child_pid, SIGPOLL).is_err() {
-                break;
+        // Poll and reap child process
+        if let Some(child) = child {
+            match waitpid(Some(child), Some(WaitPidFlag::WNOHANG)) {
+                Err(Error::Sys(errno)) if errno == Errno::ECHILD => {
+                    break;
+                }
+                _ => {}
             }
         }
 
@@ -164,6 +158,24 @@ fn main() -> Result<()> {
 
 /// Update configuration struct according to parsed arguments
 fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
+    config.duration = matches
+        .value_of("duration")
+        .map(|duration| {
+            duration
+                .parse::<u64>()
+                .expect("Failed to parse duration time")
+        })
+        .map(|duration| Duration::from_secs(duration));
+
+    config.interval = matches
+        .value_of("interval")
+        .map(|interval| {
+            interval
+                .parse::<u64>()
+                .expect("Failed to parse interval time")
+        })
+        .map(|interval| Duration::from_secs(interval));
+
     if let Some(pid) = matches.value_of("pid") {
         config.trace_tgid = Some(pid.parse().context("Failed to parse PID")?);
     }
@@ -172,8 +184,8 @@ fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
         config.trace_pid = Some(tid.parse().context("Failed to parse TID")?);
     }
 
-    if matches.is_present("coarse") {
-        config.coarse_ns = true;
+    if matches.is_present("trace children") {
+        config.trace_children = true;
     }
 
     if matches.is_present("debug") {
@@ -183,12 +195,40 @@ fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
     Ok(())
 }
 
+fn print_initial_info(config: &Config) {
+    let pid_str = if let Some(pid) = config.trace_tgid {
+        format!(" pid {}", pid)
+    } else {
+        "".into()
+    };
+
+    let tid_str = if let Some(tid) = config.trace_pid {
+        format!(" tid {}", tid)
+    } else {
+        "".into()
+    };
+
+    let dur_str = if let Some(duration) = config.duration {
+        format!(" for {:?}", duration)
+    } else {
+        " until exit".into()
+    };
+
+    eprintln!(
+        "Tracing{}{}{}. Press Ctrl-C to exit.",
+        pid_str, tid_str, dur_str
+    );
+}
+
 /// Spawn driver program, waiting for SIGUSR1 before the execvp
 fn spawn_driver(driver: &mut Values) -> Option<Pid> {
     let mut signals = Signals::new(&[libc::SIGUSR1]).unwrap();
 
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => {
+            thread::spawn(move || {
+                waitpid(Some(child), None).expect("Failed to call waitpid");
+            });
             return Some(child);
         }
         Ok(ForkResult::Child) => {

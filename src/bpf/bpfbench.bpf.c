@@ -13,9 +13,18 @@
 
 #include "bpfbench.h"
 
+volatile bool trace_children = false;
+
 // Dummy instances to generate BTF info
 struct overhead __overhead = {};
 struct syscall_key __syscall_key = {};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, u32);
+    __type(value, bool);
+} children SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -37,7 +46,7 @@ int BPF_PROG(do_sys_enter, struct pt_regs *regs, long id)
     u32 pid = bpf_get_current_pid_tgid();
     u32 tgid = bpf_get_current_pid_tgid() >> 32;
 
-    if (!bpfbench__should_trace(pid, tgid))
+    if (!bpfbench__should_trace(&children, pid, tgid))
         return 0;
 
     u64 start_time = bpf_ktime_get_ns();
@@ -56,7 +65,7 @@ int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
     u32 pid = bpf_get_current_pid_tgid();
     u32 tgid = bpf_get_current_pid_tgid() >> 32;
 
-    if (!bpfbench__should_trace(pid, tgid))
+    if (!bpfbench__should_trace(&children, pid, tgid))
         return 0;
 
     // Ignore restart_syscall
@@ -89,3 +98,32 @@ int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
 
     return 0;
 }
+
+/* Trace children */
+SEC("tp_btf/sched_process_fork")
+int sched_process_fork(struct bpf_raw_tracepoint_args *args)
+{
+    if (!trace_children)
+        return 0;
+    if (!trace_pid && !trace_tgid)
+        return 0;
+
+    struct task_struct *parent = (struct task_struct *)args->args[0];
+    struct task_struct *child = (struct task_struct *)args->args[1];
+
+    u32 ppid = parent->pid;
+    u32 ptgid = parent->tgid;
+
+    if (!bpfbench__should_trace(&children, ppid, ptgid)) {
+        return 0;
+    }
+
+    bool t = true;
+    u32 cpid = parent->pid;
+
+    bpf_map_update_elem(&children, &cpid, &t, BPF_ANY);
+
+    return 0;
+}
+
+char LICENSE[] SEC("license") = "GPL";

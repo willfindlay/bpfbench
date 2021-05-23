@@ -13,6 +13,7 @@ use plain::from_bytes;
 
 use crate::bpf::BpfbenchSkel;
 use crate::bpf_types::{Overhead, SyscallKey};
+use crate::syscall::SystemCall;
 
 fn get_raw_result(map: &Map, key: &[u8]) -> (SystemCall, Overhead) {
     let val = map.lookup(&key, MapFlags::ANY).unwrap().unwrap();
@@ -42,29 +43,6 @@ impl ResultsOrder {
     }
 }
 
-//mod sort {
-//    pub fn by_count_decreasing(
-//        a: &(&SystemCall, &BenchResult),
-//        b: &(&SystemCall, &BenchResult),
-//    ) -> Ordering {
-//        a.1.count.cmp(&b.1.count).reverse()
-//    }
-//
-//    pub fn by_average_time_decreasing(
-//        a: &(&SystemCall, &BenchResult),
-//        b: &(&SystemCall, &BenchResult),
-//    ) -> Ordering {
-//        a.1.average_ns().cmp(&b.1.average_ns()).reverse()
-//    }
-//
-//    pub fn by_total_time_decreasing(
-//        a: &(&SystemCall, &BenchResult),
-//        b: &(&SystemCall, &BenchResult),
-//    ) -> Ordering {
-//        a.1.total_ns.cmp(&b.1.total_ns).reverse()
-//    }
-//}
-
 #[derive(Debug)]
 pub struct Results {
     inner: BTreeMap<SystemCall, BenchResult>,
@@ -92,13 +70,13 @@ impl Results {
         data.sort_by(order.order());
 
         println!(
-            "{:>12} {:>8} {:>20} {:>20}",
+            "{:24} {:>8} {:>20} {:>20}",
             "Syscall", "Count", "Total Time (ns)", "Avg. Time (ns)"
         );
         for (syscall, result) in data {
             println!(
-                "{:>12} {:>8} {:>20} {:>20}",
-                syscall.0,
+                "{:24} {:>8} {:>20} {:>20}",
+                syscall.name(),
                 result.count,
                 result.total_ns,
                 result.average_ns()
@@ -119,6 +97,3 @@ impl BenchResult {
         self.total_ns / self.count
     }
 }
-
-#[derive(Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct SystemCall(pub i64);
