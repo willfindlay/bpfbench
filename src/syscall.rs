@@ -12,14 +12,23 @@ use conv::ValueFrom;
 pub struct SystemCall(pub i64);
 
 impl SystemCall {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> String {
         let number = usize::value_from(self.0).ok();
         if number.is_none() {
-            return "[UNKNOWN]";
+            return format!("[unknown {}]", self.0);
         }
-        let number = number.unwrap();
+
+        let mut number = number.unwrap();
+        // There is a gap in x86_64 syscall numbers
+        if number > 334 {
+            number -= 89;
+        }
 
         // @TODO: Handle other archs
-        *SYSTEM_CALL_NAMES_X86_64.get(number).unwrap_or(&"[UNKNOWN]")
+        SYSTEM_CALL_NAMES_X86_64
+            .get(number)
+            .map(|s| s.to_string())
+            .unwrap_or(format!("[unknown {}]", self.0))
+            .to_string()
     }
 }
