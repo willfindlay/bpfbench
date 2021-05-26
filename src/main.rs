@@ -9,12 +9,11 @@ use std::env;
 use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context as _, Result};
-use clap::{App, AppSettings, Arg, ArgMatches, Values};
+use anyhow::Result;
+use clap::{App, AppSettings, Arg, Values};
 use nix::errno::Errno;
 use nix::sys::signal::{kill, SIGUSR1};
 use nix::sys::wait::{waitpid, WaitPidFlag};
@@ -23,6 +22,7 @@ use nix::Error;
 use scopeguard::defer;
 use signal_hook::iterator::Signals;
 
+use bpfbench::validators::{is_positive_integer, is_valid_path};
 use bpfbench::BpfBenchContext;
 use bpfbench::Config;
 
@@ -37,6 +37,7 @@ fn main() -> Result<()> {
                 .long("duration")
                 .short("d")
                 .takes_value(true)
+                .validator(is_positive_integer)
                 .help("Duration to run (in seconds). If this is not specified, tracing runs infinitely"),
         )
         .arg(
@@ -44,6 +45,7 @@ fn main() -> Result<()> {
                 .long("interval")
                 .short("i")
                 .takes_value(true)
+                .validator(is_positive_integer)
                 .help("How often should resulted be printed (in seconds)"),
         )
         .arg(
@@ -51,6 +53,7 @@ fn main() -> Result<()> {
                 .long("pid")
                 .short("p")
                 .takes_value(true)
+                .validator(is_positive_integer)
                 .conflicts_with("tid")
                 .help("Only trace process with this pid"),
         )
@@ -59,19 +62,9 @@ fn main() -> Result<()> {
                 .long("tid")
                 .short("t")
                 .takes_value(true)
+                .validator(is_positive_integer)
                 .conflicts_with("pid")
                 .help("Only trace thread with this tid"),
-        )
-        .arg(
-            Arg::with_name("trace children")
-                .long("children")
-                .short("c")
-                .help("Trace children of tracees. Only makes sense when combined with --driver, --pid, or --tid"),
-        )
-        .arg(
-            Arg::with_name("debug")
-                .long("debug")
-                .hidden(true),
         )
         .arg(
             Arg::with_name("driver")
@@ -81,13 +74,31 @@ fn main() -> Result<()> {
                 .conflicts_with("tid")
                 .conflicts_with("pid")
                 .help("Driver program to test and corresponding args. Not compatible with duration, tid, or pid"),
+        )
+        .arg(
+            Arg::with_name("trace children")
+                .long("children")
+                .short("c")
+                .help("Trace children of tracees. Only makes sense when combined with --driver, --pid, or --tid"),
+        )
+        .arg(
+            Arg::with_name("output")
+                .long("output")
+                .short("o")
+                .takes_value(true)
+                .validator(is_valid_path)
+                .help("Output to a file instead of stdout")
+        )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .hidden(true),
         );
 
     let matches = app.get_matches();
 
     // Create and set configuration
-    let mut config = Config::default();
-    update_config(&matches, &mut config)?;
+    let mut config = Config::from_arg_matches(&matches)?;
 
     // Flag to determine whether the process should exit
     let should_exit = Arc::new(AtomicBool::new(false));
@@ -116,13 +127,13 @@ fn main() -> Result<()> {
     }
 
     defer! {
-        ctx.dump_results();
+        ctx.dump_results(config.output_path.as_ref()).expect("Failed to dump results");
     }
 
     print_initial_info(&config);
 
     loop {
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_millis(100));
 
         // Exit when we have reached the target duration
         if let Some(duration) = config.duration {
@@ -133,7 +144,8 @@ fn main() -> Result<()> {
 
         // Dump results and reset interval on every interval
         if config.interval.is_some() && interval_time.elapsed() >= config.interval.unwrap() {
-            ctx.dump_results();
+            ctx.dump_results(config.output_path.as_ref())
+                .expect("Failed to dump results");
             interval_time = Instant::now();
         }
 
@@ -156,67 +168,46 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Update configuration struct according to parsed arguments
-fn update_config(matches: &ArgMatches, config: &mut Config) -> Result<()> {
-    config.duration = matches
-        .value_of("duration")
-        .map(|duration| {
-            duration
-                .parse::<u64>()
-                .expect("Failed to parse duration time")
-        })
-        .map(|duration| Duration::from_secs(duration));
-
-    config.interval = matches
-        .value_of("interval")
-        .map(|interval| {
-            interval
-                .parse::<u64>()
-                .expect("Failed to parse interval time")
-        })
-        .map(|interval| Duration::from_secs(interval));
-
-    if let Some(pid) = matches.value_of("pid") {
-        config.trace_tgid = Some(pid.parse().context("Failed to parse PID")?);
-    }
-
-    if let Some(tid) = matches.value_of("tid") {
-        config.trace_pid = Some(tid.parse().context("Failed to parse TID")?);
-    }
-
-    if matches.is_present("trace children") {
-        config.trace_children = true;
-    }
-
-    if matches.is_present("debug") {
-        config.debug = true;
-    }
-
-    Ok(())
-}
-
+/// Print initial information to the user when starting a trace.
 fn print_initial_info(config: &Config) {
+    // What PID are we tracing?
     let pid_str = if let Some(pid) = config.trace_tgid {
-        format!(" pid {}", pid)
+        format!(" PID {}", pid)
     } else {
         "".into()
     };
 
+    // What TID are we tracing?
     let tid_str = if let Some(tid) = config.trace_pid {
-        format!(" tid {}", tid)
+        format!(" TID {}", tid)
     } else {
         "".into()
     };
 
+    // How long are we tracing for?
     let dur_str = if let Some(duration) = config.duration {
         format!(" for {:?}", duration)
     } else {
         " until exit".into()
     };
 
+    // Where are we printing results?
+    let out_str = if let Some(output) = config.output_path.clone() {
+        format!(" to {}", output.display())
+    } else {
+        " to stdout".into()
+    };
+
+    // How often are we printing results
+    let int_str = if let Some(interval) = config.interval {
+        format!(" every {:?}", interval)
+    } else {
+        " when finished".into()
+    };
+
     eprintln!(
-        "Tracing{}{}{}. Press Ctrl-C to exit.",
-        pid_str, tid_str, dur_str
+        "Tracing{}{}{} and outputting results{}{}... Press Ctrl-C to exit.",
+        pid_str, tid_str, dur_str, out_str, int_str
     );
 }
 
@@ -226,9 +217,6 @@ fn spawn_driver(driver: &mut Values) -> Option<Pid> {
 
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => {
-            thread::spawn(move || {
-                waitpid(Some(child), None).expect("Failed to call waitpid");
-            });
             return Some(child);
         }
         Ok(ForkResult::Child) => {

@@ -7,7 +7,11 @@
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::{stdout, Write};
+use std::path::Path;
 
+use anyhow::Result;
 use libbpf_rs::{Map, MapFlags};
 use plain::from_bytes;
 
@@ -65,24 +69,40 @@ impl Results {
         Self { inner: hash }
     }
 
-    pub fn summarize(&self, order: &'static ResultsOrder) {
+    /// Summarize results, sorting by `order` and outputting to either `output` or stdout.
+    pub fn summarize<P: AsRef<Path>>(
+        &self,
+        order: &'static ResultsOrder,
+        output: Option<P>,
+    ) -> Result<()> {
         let mut data = self.inner.iter().collect::<Vec<_>>();
         data.sort_by(order.order());
 
-        println!(
+        // Either open a new file for writing or write to stdout
+        let mut writer: Box<dyn Write> = if let Some(output) = output {
+            Box::new(File::create(output)?)
+        } else {
+            Box::new(stdout())
+        };
+
+        writeln!(
+            writer,
             "{:24} {:>8} {:>20} {:>20}",
             "Syscall", "Count", "Total Time (ns)", "Avg. Time (ns)"
-        );
+        )?;
         for (syscall, result) in data {
-            println!(
+            writeln!(
+                writer,
                 "{:24} {:>8} {:>20} {:>20}",
                 syscall.name(),
                 result.count,
                 result.total_ns,
                 result.average_ns()
-            );
+            )?;
         }
-        println!()
+        writeln!(writer, "")?;
+
+        Ok(())
     }
 }
 
@@ -93,7 +113,7 @@ pub struct BenchResult {
 }
 
 impl BenchResult {
-    fn average_ns(&self) -> u64 {
+    pub fn average_ns(&self) -> u64 {
         self.total_ns / self.count
     }
 }

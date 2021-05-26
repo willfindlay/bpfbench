@@ -8,6 +8,7 @@
 mod bench;
 mod bpf;
 mod bpf_types;
+mod cli;
 mod config;
 mod results;
 mod syscall;
@@ -15,4 +16,5 @@ mod syscall_names;
 mod util;
 
 pub use bench::BpfBenchContext;
+pub use cli::validators;
 pub use config::Config;

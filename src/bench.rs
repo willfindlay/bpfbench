@@ -5,6 +5,8 @@
 //
 // May 20, 2021  William Findlay  Created this.
 
+use std::path::Path;
+
 use anyhow::{Context as _, Result};
 
 use crate::bpf::{BpfbenchSkel, BpfbenchSkelBuilder, OpenBpfbenchSkel};
@@ -23,9 +25,9 @@ impl<'a> BpfBenchContext<'a> {
         Ok(Self { skel })
     }
 
-    pub fn dump_results(&self) {
-        let results = Results::new(&self.skel);
-        results.summarize(&ResultsOrder::AverageTimeDecreasing);
+    pub fn dump_results<P: AsRef<Path>>(&self, output: Option<P>) -> Result<()> {
+        Results::new(&self.skel).summarize(&ResultsOrder::AverageTimeDecreasing, output)?;
+        Ok(())
     }
 }
 
