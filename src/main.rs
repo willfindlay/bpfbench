@@ -137,7 +137,7 @@ fn main() -> Result<()> {
     }
 
     defer! {
-        ctx.dump_results(config.output_path.as_ref()).context("Failed to dump results")?;
+        ctx.dump_results(config.output_path.as_ref()).expect("Failed to dump results");
     }
 
     print_initial_info(&config);
