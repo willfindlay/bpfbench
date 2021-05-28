@@ -28,9 +28,10 @@ pub fn main() {
     generate_vmlinux();
 
     // Generate skeleton
-    SkeletonBuilder::new("src/bpf/bpfbench.bpf.c")
-        .generate("src/bpf/mod.rs")
-        .expect("Failed to generate skeleton");
+    match SkeletonBuilder::new("src/bpf/bpfbench.bpf.c").generate("src/bpf/mod.rs") {
+        Ok(_) => {}
+        Err(e) => panic!("Failed to generate skeleton: {}", e),
+    }
 }
 
 fn generate_vmlinux() {
