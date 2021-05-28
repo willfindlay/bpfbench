@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{bail, Context as _, Result};
 use clap::{App, AppSettings, Arg, Values};
 use nix::errno::Errno;
 use nix::sys::signal::{kill, SIGUSR1};
@@ -103,6 +103,10 @@ fn main() -> Result<()> {
 
     let matches = app.get_matches();
 
+    if !Uid::effective().is_root() {
+        bail!("You need to run bpfbench as root!");
+    }
+
     // Create and set configuration
     let mut config = Config::from_arg_matches(&matches)?;
 
@@ -113,19 +117,19 @@ fn main() -> Result<()> {
     // Register a signal handler on SIGINT, SIGTERM, and SA_SIGINFO to set should_exit to
     // true
     ctrlc::set_handler(move || should_exit_clone.store(true, Ordering::SeqCst))
-        .expect("Failed to register signal handler");
+        .context("Failed to register signal handler")?;
 
     // Spawn driver program if one is supplied
     let mut child: Option<Pid> = None;
     if let Some(mut driver) = matches.values_of("driver") {
         child = spawn_driver(&mut driver);
-        config.trace_tgid = Some(child.expect("No child pid").as_raw() as u32);
+        config.trace_tgid = Some(child.context("No child pid")?.as_raw() as u32);
     }
 
     // Get start time and initial interval_time
     let start_time = Instant::now();
     let mut interval_time = Instant::now();
-    let ctx = BpfBenchContext::new(&config).expect("Failed to create BpfBenchContext");
+    let ctx = BpfBenchContext::new(&config).context("Failed to create BpfBenchContext")?;
 
     // Wake the child
     if let Some(child) = child {
@@ -133,7 +137,7 @@ fn main() -> Result<()> {
     }
 
     defer! {
-        ctx.dump_results(config.output_path.as_ref()).expect("Failed to dump results");
+        ctx.dump_results(config.output_path.as_ref()).context("Failed to dump results")?;
     }
 
     print_initial_info(&config);
@@ -151,7 +155,7 @@ fn main() -> Result<()> {
         // Dump results and reset interval on every interval
         if config.interval.is_some() && interval_time.elapsed() >= config.interval.unwrap() {
             ctx.dump_results(config.output_path.as_ref())
-                .expect("Failed to dump results");
+                .context("Failed to dump results")?;
             interval_time = Instant::now();
         }
 
