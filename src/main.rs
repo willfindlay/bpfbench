@@ -82,6 +82,12 @@ fn main() -> Result<()> {
                 .help("Trace children of tracees. Only makes sense when combined with --driver, --pid, or --tid"),
         )
         .arg(
+            Arg::with_name("filter errors")
+                .long("filter-errors")
+                .short("e")
+                .help("Filter out system calls with error results"),
+        )
+        .arg(
             Arg::with_name("output")
                 .long("output")
                 .short("o")

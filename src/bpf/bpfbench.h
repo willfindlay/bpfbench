@@ -17,6 +17,8 @@
 volatile u32 trace_pid = 0;
 volatile u32 trace_tgid = 0;
 volatile u32 bpfbench_pid = 0;
+volatile bool trace_children = false;
+volatile bool filter_errors = false;
 
 extern bool CONFIG_X86_64 __kconfig;
 extern bool CONFIG_X86 __kconfig;
@@ -33,11 +35,13 @@ struct overhead {
 };
 
 static __always_inline bool bpfbench__should_trace(void *children_map, u32 pid,
-                                                   u32 tgid)
+                                                   u32 tgid, long retval)
 {
     if (!pid || !tgid)
         return false;
     if (bpfbench_pid == pid)
+        return false;
+    if (filter_errors && retval < 0)
         return false;
     if (bpf_map_lookup_elem(children_map, &pid))
         return true;

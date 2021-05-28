@@ -13,8 +13,6 @@
 
 #include "bpfbench.h"
 
-volatile bool trace_children = false;
-
 // Dummy instances to generate BTF info
 struct overhead __overhead = {};
 struct syscall_key __syscall_key = {};
@@ -46,7 +44,7 @@ int BPF_PROG(do_sys_enter, struct pt_regs *regs, long id)
     u32 pid = bpf_get_current_pid_tgid();
     u32 tgid = bpf_get_current_pid_tgid() >> 32;
 
-    if (!bpfbench__should_trace(&children, pid, tgid))
+    if (!bpfbench__should_trace(&children, pid, tgid, 0))
         return 0;
 
     u64 start_time = bpf_ktime_get_ns();
@@ -65,7 +63,7 @@ int BPF_PROG(do_sys_exit, struct pt_regs *regs, long ret)
     u32 pid = bpf_get_current_pid_tgid();
     u32 tgid = bpf_get_current_pid_tgid() >> 32;
 
-    if (!bpfbench__should_trace(&children, pid, tgid))
+    if (!bpfbench__should_trace(&children, pid, tgid, ret))
         return 0;
 
     // Ignore restart_syscall
@@ -114,7 +112,7 @@ int sched_process_fork(struct bpf_raw_tracepoint_args *args)
     u32 ppid = parent->pid;
     u32 ptgid = parent->tgid;
 
-    if (!bpfbench__should_trace(&children, ppid, ptgid)) {
+    if (!bpfbench__should_trace(&children, ppid, ptgid, 0)) {
         return 0;
     }
 

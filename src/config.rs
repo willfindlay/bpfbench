@@ -17,6 +17,7 @@ pub struct Config {
     pub trace_tgid: Option<u32>,
     pub debug: bool,
     pub trace_children: bool,
+    pub filter_errors: bool,
     pub duration: Option<Duration>,
     pub interval: Option<Duration>,
     pub output_path: Option<PathBuf>,
@@ -54,6 +55,10 @@ impl Config {
         }
 
         if matches.is_present("trace children") {
+            config.trace_children = true;
+        }
+
+        if matches.is_present("filter errors") {
             config.trace_children = true;
         }
 
