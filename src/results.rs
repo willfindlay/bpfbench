@@ -94,7 +94,7 @@ impl Results {
             writeln!(
                 writer,
                 "{:24} {:>8} {:>20} {:>20}",
-                syscall.name(),
+                syscall.name()?,
                 result.count,
                 result.total_ns,
                 result.average_ns()
